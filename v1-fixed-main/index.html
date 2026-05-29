@@ -1,0 +1,291 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>RFID Inventory</title>
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link href="https://fonts.googleapis.com/css2?family=DM+Mono:wght@300;400;500&family=Syne:wght@400;500;600;700;800&display=swap" rel="stylesheet">
+  <link rel="stylesheet" href="style2.css">
+  <link rel="icon" type="image/svg+xml" href="data:image/svg+xml,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 32 32'><rect width='32' height='32' rx='8' fill='%23000'/><circle cx='16' cy='16' r='6' fill='none' stroke='%2300ff88' stroke-width='2'/><circle cx='16' cy='16' r='2' fill='%2300ff88'/></svg>">
+</head>
+<body>
+
+<!-- Ambient background -->
+<div class="ambient" aria-hidden="true">
+  <div class="ambient-orb orb-1"></div>
+  <div class="ambient-orb orb-2"></div>
+  <div class="ambient-orb orb-3"></div>
+  <div class="grid-overlay"></div>
+</div>
+
+<!-- Top bar -->
+<header id="topbar">
+  <div class="topbar-left">
+    <div class="brand-icon" aria-hidden="true">
+      <svg width="20" height="20" viewBox="0 0 20 20" fill="none">
+        <circle cx="10" cy="10" r="8" stroke="#00ff88" stroke-width="1.5"/>
+        <circle cx="10" cy="10" r="4" stroke="#00ff88" stroke-width="1.5" opacity=".5"/>
+        <circle cx="10" cy="10" r="2" fill="#00ff88"/>
+      </svg>
+    </div>
+    <div class="brand-text">
+      <span class="brand-name">RFID Inventory</span>
+      <span class="brand-tag">ESP32 · Atlas · Vercel</span>
+    </div>
+  </div>
+
+  <div class="topbar-center">
+    <div id="rfid-ticker" role="status" aria-live="polite">
+      <span class="ticker-dot" aria-hidden="true"></span>
+      <span id="rfid-text">Waiting for scan…</span>
+      <span id="rfid-uid" class="ticker-uid"></span>
+    </div>
+  </div>
+
+  <div class="topbar-right">
+    <div id="system-status" aria-live="polite">
+      <div id="status-dot"></div>
+      <span id="status-text">CONNECTING</span>
+    </div>
+    <div class="topbar-divider" aria-hidden="true"></div>
+    <span id="last-sync"></span>
+    <span id="topbar-clock"></span>
+  </div>
+</header>
+
+<!-- App shell -->
+<div id="app">
+
+  <!-- Sidebar -->
+  <nav id="sidebar" aria-label="Navigation">
+
+    <div class="nav-group">
+      <div class="nav-label">MONITOR</div>
+      <button class="nav-item active" data-view="dashboard" aria-current="page">
+        <svg width="16" height="16" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.5">
+          <rect x="1" y="1" width="6" height="6" rx="1.5"/><rect x="9" y="1" width="6" height="6" rx="1.5"/>
+          <rect x="1" y="9" width="6" height="6" rx="1.5"/><rect x="9" y="9" width="6" height="6" rx="1.5"/>
+        </svg>
+        <span>Dashboard</span>
+      </button>
+      <button class="nav-item" data-view="containers">
+        <svg width="16" height="16" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.5">
+          <rect x="1" y="4" width="14" height="9" rx="1.5"/>
+          <path d="M4 4V2.5a.5.5 0 0 1 .5-.5h7a.5.5 0 0 1 .5.5V4"/>
+          <path d="M1 8h14"/>
+        </svg>
+        <span>Containers</span>
+        <span class="nav-badge" id="sidebar-total-badge">4</span>
+      </button>
+      <button class="nav-item" data-view="activity">
+        <svg width="16" height="16" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.5">
+          <path d="M1 8h2l2-5 3 10 2-6 1 3 1-2h3"/>
+        </svg>
+        <span>Activity</span>
+        <span class="nav-badge alert" id="sidebar-alert-badge">0</span>
+      </button>
+    </div>
+
+    <div class="nav-group">
+      <div class="nav-label">SYSTEM</div>
+      <button class="nav-item" onclick="loadInventory()">
+        <svg width="16" height="16" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.5">
+          <path d="M13.5 8A5.5 5.5 0 1 1 8 2.5"/><path d="M13.5 2.5v3.5h-3.5"/>
+        </svg>
+        <span>Sync Now</span>
+      </button>
+      <button class="nav-item" id="sidebar-rfid-link">
+        <svg width="16" height="16" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.5">
+          <rect x="3" y="6" width="10" height="7" rx="1.5"/>
+          <path d="M5.5 6V4a2.5 2.5 0 0 1 5 0v2"/>
+          <circle cx="8" cy="9.5" r="1" fill="currentColor"/>
+        </svg>
+        <span>RFID Status</span>
+      </button>
+    </div>
+
+    <!-- Sidebar footer stats -->
+    <div class="sidebar-footer">
+      <div class="sf-row">
+        <span class="sf-label">Low Stock</span>
+        <span class="sf-val warn" id="sf-low">—</span>
+      </div>
+      <div class="sf-row">
+        <span class="sf-label">Empty</span>
+        <span class="sf-val danger" id="sf-empty">—</span>
+      </div>
+    </div>
+
+  </nav>
+
+  <!-- Main content -->
+  <main id="main" role="main">
+
+    <!-- Stats strip -->
+    <section id="stats-row" aria-label="Summary">
+      <div class="stat-tile">
+        <div class="stat-icon">
+          <svg width="18" height="18" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.5">
+            <rect x="1" y="4" width="14" height="9" rx="1.5"/><path d="M1 8h14"/>
+          </svg>
+        </div>
+        <div class="stat-body">
+          <div class="stat-val" id="stat-total">—</div>
+          <div class="stat-lbl">Containers</div>
+        </div>
+      </div>
+      <div class="stat-tile accent">
+        <div class="stat-icon">
+          <svg width="18" height="18" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.5">
+            <circle cx="8" cy="8" r="6"/><path d="M8 5v3l2 2"/>
+          </svg>
+        </div>
+        <div class="stat-body">
+          <div class="stat-val" id="stat-qty">—</div>
+          <div class="stat-lbl">Total Items</div>
+        </div>
+      </div>
+      <div class="stat-tile warn">
+        <div class="stat-icon">
+          <svg width="18" height="18" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.5">
+            <path d="M8 2l6 12H2z"/><path d="M8 7v3M8 11.5v.5"/>
+          </svg>
+        </div>
+        <div class="stat-body">
+          <div class="stat-val" id="stat-low">—</div>
+          <div class="stat-lbl">Low Stock</div>
+        </div>
+      </div>
+      <div class="stat-tile danger">
+        <div class="stat-icon">
+          <svg width="18" height="18" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.5">
+            <circle cx="8" cy="8" r="6"/><path d="M8 5v4M8 10.5v.5"/>
+          </svg>
+        </div>
+        <div class="stat-body">
+          <div class="stat-val" id="stat-empty">—</div>
+          <div class="stat-lbl">Empty</div>
+        </div>
+      </div>
+    </section>
+
+    <!-- Containers grid -->
+    <section class="content-section">
+      <div class="section-head">
+        <h2 class="section-title">Containers</h2>
+        <span class="section-hint">Tap to manage</span>
+      </div>
+      <div id="container-grid" aria-label="Containers" role="list"></div>
+    </section>
+
+    <!-- Activity feed -->
+    <section class="content-section" id="activity-section">
+      <div class="section-head">
+        <h2 class="section-title">Recent Activity</h2>
+      </div>
+      <div id="activity-list" aria-live="polite"></div>
+      <div id="activity-empty" style="display:none" class="empty-state">No activity yet. Add or scan items to begin.</div>
+    </section>
+
+  </main>
+</div>
+
+<!-- Panel overlay -->
+<div id="panel-overlay" aria-hidden="true"></div>
+
+<!-- Detail panel -->
+<aside id="detail-panel" role="dialog" aria-modal="true" aria-label="Container detail">
+
+  <div class="panel-header">
+    <div class="panel-header-info">
+      <div class="panel-eyebrow" id="panel-subtitle"></div>
+      <div class="panel-name" id="panel-title">—</div>
+      <span class="status-pill EMPTY" id="panel-status-badge">EMPTY</span>
+    </div>
+    <button class="panel-close" id="btn-close-panel" aria-label="Close">
+      <svg width="14" height="14" viewBox="0 0 14 14" fill="none" stroke="currentColor" stroke-width="2">
+        <path d="M1 1l12 12M13 1L1 13"/>
+      </svg>
+    </button>
+  </div>
+
+  <!-- Panel stats -->
+  <div class="panel-metrics">
+    <div class="pm-item">
+      <div class="pm-val" id="panel-stat-qty">0</div>
+      <div class="pm-lbl">Quantity</div>
+    </div>
+    <div class="pm-divider" aria-hidden="true"></div>
+    <div class="pm-item">
+      <div class="pm-val" id="panel-stat-cap">—</div>
+      <div class="pm-lbl">Capacity</div>
+    </div>
+    <div class="pm-divider" aria-hidden="true"></div>
+    <div class="pm-item">
+      <div class="pm-val" id="panel-stat-pct">0%</div>
+      <div class="pm-lbl">Filled</div>
+    </div>
+  </div>
+
+  <!-- Progress bar -->
+  <div class="panel-progress-wrap">
+    <div class="panel-progress-track">
+      <div class="panel-progress-bar" id="panel-progress-bar" style="width:0%"></div>
+    </div>
+  </div>
+
+  <!-- Controls -->
+  <div class="panel-controls">
+
+    <div class="control-group">
+      <label class="ctrl-label" for="capacity-input">Set Capacity</label>
+      <div class="ctrl-row">
+        <input type="number" id="capacity-input" min="1" max="9999" value="50" class="ctrl-input" aria-label="Capacity">
+        <button id="btn-save-capacity" class="ctrl-btn">Update</button>
+      </div>
+    </div>
+
+    <div class="control-group">
+      <label class="ctrl-label" for="product-name-input">Product Name</label>
+      <input type="text" id="product-name-input" value="Item" placeholder="e.g. Bolt M6" maxlength="40" class="ctrl-input full" aria-label="Product name">
+    </div>
+
+    <div class="control-group">
+      <label class="ctrl-label" for="qty-input">Quantity</label>
+      <input type="number" id="qty-input" value="1" min="1" max="999" class="ctrl-input" aria-label="Quantity" style="width:80px">
+    </div>
+
+    <div class="panel-actions">
+      <button class="action-btn add" id="btn-panel-add">
+        <svg width="13" height="13" viewBox="0 0 14 14" fill="none" stroke="currentColor" stroke-width="2">
+          <path d="M7 1v12M1 7h12"/>
+        </svg>
+        Add Stock
+      </button>
+      <button class="action-btn remove" id="btn-panel-remove">
+        <svg width="13" height="13" viewBox="0 0 14 14" fill="none" stroke="currentColor" stroke-width="2">
+          <path d="M1 7h12"/>
+        </svg>
+        Remove
+      </button>
+    </div>
+
+  </div>
+
+  <!-- Logs -->
+  <div class="panel-logs">
+    <div class="logs-header">Transaction Log</div>
+    <div id="panel-log-list" class="logs-list">
+      <div class="log-empty">No transactions yet.</div>
+    </div>
+  </div>
+
+</aside>
+
+<!-- Toast -->
+<div id="toast-container" aria-live="assertive" aria-atomic="true"></div>
+
+<script src="script.js"></script>
+</body>
+</html>
